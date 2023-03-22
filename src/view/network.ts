@@ -40,7 +40,7 @@ export class NetworkViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async(event: MessageEvent) => {
       if (event.command !== "log") {
-        this.ctx.log.debug(`[recevieMessage=${this.constructor.name}]`, event);
+        this.ctx.log.debug(`[receivedMessage=${this.constructor.name}]`, event);
       }
       switch (event.command) {
         case "log":

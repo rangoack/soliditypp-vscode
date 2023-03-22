@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
-const vuilder = require("@vite/vuilder");
 const vite = require("@vite/vitejs");
 import { Ctx } from "../ctx";
-import { getAmount } from "../util";
+import { getAmount, waitFor } from "../util";
 import { getWebviewContent } from "./webview";
 import {
   MessageEvent,
@@ -37,7 +36,7 @@ export class ContractConsoleViewPanel {
 
     this._panel.webview.onDidReceiveMessage(async (event: MessageEvent) => {
       if (event.command !== "log") {
-        this.ctx.log.debug(`[recevieMessage=${this.constructor.name}]`, event);
+        this.ctx.log.debug(`[receivedMessage=${this.constructor.name}]`, event);
       }
       switch (event.command) {
         case "log":
@@ -111,7 +110,7 @@ export class ContractConsoleViewPanel {
                 // sign and send
                 sendBlock = await ab.autoSend();
                 // get account block
-                await vuilder.utils.waitFor(async () => {
+                await waitFor(async () => {
                   const blocks = await provider.request("ledger_getAccountBlocksByAddress", fromAddress, 0, 3);
                   for (const block of blocks) {
                     if (block.previousHash === sendBlock.previousHash) {
@@ -128,7 +127,7 @@ export class ContractConsoleViewPanel {
             }
 
             // waiting confirmed
-            await vuilder.utils.waitFor(async () => {
+            await waitFor(async () => {
               if (sendBlock.confirmedHash) {
                 this.ctx.vmLog.info(`[${network}][${contractName}][send()][confirmed=${sendBlock.confirmedHash}]`, sendBlock);
                 this.postMessage({
@@ -155,11 +154,11 @@ export class ContractConsoleViewPanel {
             const contractName = contractFile.fragment;
             // get inputs value
             const params = func.inputs.map((x: any) => x.value);
-            const data = vite.abi.encodeFunctionCall(func, params);
             this.ctx.vmLog.info(`[${network}][${contractName}][query ${func.name}()][request]`, {
               contractAddress: toAddress,
               params,
             });
+            const data = vite.abi.encodeFunctionCall(func, params);
             // get provider
             let reqProvider: any;
             if (network === ViteNetwork.Bridge) {
@@ -169,14 +168,16 @@ export class ContractConsoleViewPanel {
             }
 
             try {
-              await vuilder.utils.waitFor(async() => {
+              await waitFor(async() => {
                 const rawRet = await reqProvider.request("contract_query", {
                   address: toAddress,
                   data: Buffer.from(data, "hex").toString("base64"),
                 });
                 if (rawRet) {
+                  this.ctx.log.debug(func.outputs);
                   const ret = vite.abi.decodeFunctionOutput(
-                    func.outputs.map((x: any)=>x.type),
+                    func,
+                    // func.outputs.map((x: any)=>x.type),
                     Buffer.from(rawRet, "base64").toString("hex"),
                   );
                   this.ctx.vmLog.info(`[${network}][${contractName}][query ${func.name}()][response]`, ret);
@@ -193,7 +194,7 @@ export class ContractConsoleViewPanel {
                 } else {
                   return false;
                 }
-              }, "", 500);
+              });
             } catch (error:any) {
               this.ctx.vmLog.error(`[${network}][${contractName}][query ${func.name}()]`, error);
             }
@@ -272,7 +273,7 @@ export class ContractConsoleViewPanel {
             }
 
             // waiting confirmed
-            await vuilder.utils.waitFor(async () => {
+            await waitFor(async () => {
               try {
                 sendBlock = await reqProvider.request("ledger_getAccountBlockByHash", sendBlock.hash);
                 if (!sendBlock.confirmedHash || !sendBlock.receiveBlockHash) {
@@ -300,7 +301,7 @@ export class ContractConsoleViewPanel {
               this.ctx.vmLog.info(`[${network}][${contractName}][call ${func.name}()][receiveBlock=${receiveBlock.hash}]`, receiveBlock);
 
               // waiting confirmed
-              await vuilder.utils.waitFor(async () => {
+              await waitFor(async () => {
                 if (receiveBlock.confirmedHash) {
                   this.ctx.vmLog.info(`[${network}][${contractName}][call ${func.name}()][receiveBlock][confirmed=${receiveBlock.confirmedHash}]`, receiveBlock);
                   return true;
@@ -391,7 +392,7 @@ export class ContractConsoleViewPanel {
     }
     const message: any[] = [];
     for (const address of addressList) {
-      const quotaInfo = await provider.request('contract_getQuotaByAccount', address);
+      const quotaInfo = await provider.request("contract_getQuotaByAccount", address);
       const balanceInfo = await provider.getBalanceInfo(address);
       const balance = balanceInfo.balance.balanceInfoMap?.[vite.constant.Vite_TokenId]?.balance;
       message.push({

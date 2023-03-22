@@ -181,3 +181,16 @@ export function formatAmount(amount: string, unit = "VITE") {
     return amount;
   }
 }
+
+export async function waitFor(condition: () => Promise<boolean>, interval: number = 500, timeout: number = 30 * 1000): Promise<void> {
+  const startTime = Date.now();
+  while (true) {
+    if (await condition()) {
+      break;
+    }
+    if (Date.now() - startTime > timeout) {
+      throw new Error(`Timeout waiting for execute reply (${timeout/1000}s)`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+}

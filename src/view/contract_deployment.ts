@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
-const vuilder = require("@vite/vuilder");
 const vite = require("@vite/vitejs");
 import { Ctx } from "../ctx";
-import { getAmount } from "../util";
+import { getAmount, waitFor } from "../util";
 import { getWebviewContent } from "./webview";
 import {
   DeployInfo,
@@ -44,7 +43,7 @@ export class ContractDeploymentViewProvider implements vscode.WebviewViewProvide
 
     webviewView.webview.onDidReceiveMessage(async(event: MessageEvent) => {
       if (event.command !== "log") {
-        this.ctx.log.debug(`[recevieMessage=${this.constructor.name}]`, event);
+        this.ctx.log.debug(`[receivedMessage=${this.constructor.name}]`, event);
       }
       switch (event.command) {
         case "log":
@@ -101,7 +100,7 @@ export class ContractDeploymentViewProvider implements vscode.WebviewViewProvide
               quotaMultiplier: params.quotaMultiplier.toString(),
               randomDegree: params.randomDegree.toString(),
               responseLatency: params.responseLatency.toString(),
-              params: params.paramsStr.split(","),
+              params: params.paramsStr ? params.paramsStr.split(",") : [],
             };
 
             // create AccountBlock
@@ -181,7 +180,7 @@ export class ContractDeploymentViewProvider implements vscode.WebviewViewProvide
             }
 
             // waiting confirmed
-            await vuilder.utils.waitFor(async () => {
+            await waitFor(async () => {
               try {
                 sendBlock = await reqProvider.request("ledger_getAccountBlockByHash", sendBlock.hash);
                 if (!sendBlock.confirmedHash || !sendBlock.receiveBlockHash) {

@@ -3,7 +3,7 @@ const vuilder = require("@vite/vuilder");
 const vite = require("@vite/vitejs");
 import { Ctx, Cmd } from "./ctx";
 import { Address, ViteNetwork, DeployInfo } from "./types/types";
-import { getAmount } from "./util";
+import { getAmount, waitFor } from "./util";
 import { ContractConsoleViewPanel } from "./view/contract_console";
 
 export function stake(ctx: Ctx): Cmd {
@@ -114,7 +114,7 @@ export function stake(ctx: Ctx): Cmd {
       ctx.vmLog.info(`[${selectedNetwork}][stake][sendBlock=${sendBlock.hash}]`, sendBlock);
 
       // get account block
-      await vuilder.utils.waitFor(async () => {
+      await waitFor(async () => {
         const blocks = await provider.request("ledger_getAccountBlocksByAddress", fromAddress, 0, 3);
         for (const block of blocks) {
           if (block.previousHash === sendBlock.previousHash) {
@@ -127,7 +127,7 @@ export function stake(ctx: Ctx): Cmd {
       });
 
       // waiting confirmed
-      await vuilder.utils.waitFor(async () => {
+      await waitFor(async () => {
         sendBlock = await provider.request("ledger_getAccountBlockByHash", sendBlock.hash);
         if (!sendBlock.confirmedHash || !sendBlock.receiveBlockHash) {
           return false;
@@ -137,7 +137,7 @@ export function stake(ctx: Ctx): Cmd {
       });
 
       // waiting confirmed
-      await vuilder.utils.waitFor(async () => {
+      await waitFor(async () => {
         // get receive block
         const receiveBlock = await provider.request("ledger_getAccountBlockByHash", sendBlock.receiveBlockHash);
         if (!receiveBlock.confirmedHash) {

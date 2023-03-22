@@ -1,10 +1,9 @@
 import * as vscode from "vscode";
 const vite = require("@vite/vitejs");
-const vuilder = require("@vite/vuilder");
 import { getWebviewContent } from "./webview";
 import { Address, MessageEvent, ViteNetwork, ViteNodeStatus } from "../types/types";
 import { Ctx } from "../ctx";
-import { getAmount } from "../util";
+import { getAmount, waitFor } from "../util";
 
 export class ViteWalletViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "ViteWalletView";
@@ -36,7 +35,7 @@ export class ViteWalletViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async (event: MessageEvent) => {
       if (event.command !== "log") {
-        this.ctx.log.debug(`[recevieMessage=${this.constructor.name}]`, event);
+        this.ctx.log.debug(`[receivedMessage=${this.constructor.name}]`, event);
       }
       switch (event.command) {
         case "log":
@@ -190,7 +189,7 @@ export class ViteWalletViewProvider implements vscode.WebviewViewProvider {
                 // sign and send
                 let sendBlock = await ab.autoSend();
                 // get account block
-                await vuilder.utils.waitFor(async () => {
+                await waitFor(async () => {
                   const blocks = await provider.request("ledger_getAccountBlocksByAddress", fromAddress, 0, 3);
                   for (const block of blocks) {
                     if (block.previousHash === sendBlock.previousHash) {
@@ -203,7 +202,7 @@ export class ViteWalletViewProvider implements vscode.WebviewViewProvider {
                 });
 
                 // waiting confirmed
-                await vuilder.utils.waitFor(async () => {
+                await waitFor(async () => {
                   if (sendBlock.confirmedHash) {
                     this.ctx.vmLog.info(`[${network}][sendToken][sendBlock][confirmed=${sendBlock.confirmedHash}]`, sendBlock);
                     return true;
@@ -333,7 +332,7 @@ export class ViteWalletViewProvider implements vscode.WebviewViewProvider {
           }
           this.ctx.vmLog.info(`[${network}][receiveToken][receiveBlock=${receiveBlock.hash}]`, receiveBlock);
           // waiting confirmed
-          await vuilder.utils.waitFor(async () => {
+          await waitFor(async () => {
             if (receiveBlock.confirmedHash) {
               this.ctx.vmLog.info(`[${network}][receiveToken][receiveBlock][confirmed=${receiveBlock.confirmedHash}]`, receiveBlock);
               return true;

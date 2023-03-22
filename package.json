@@ -107,7 +107,7 @@
         "properties": {
           "command": {
             "type": "string",
-            "description": "Custom soliditypp compiler"
+            "description": "Custom solidity++ compiler"
           },
           "args": {
             "type": "array",
@@ -199,7 +199,7 @@
     ],
     "configuration": {
       "id": "solppc",
-      "title": "Soliditypp Compiler",
+      "title": "Solidity++ Compiler",
       "type": "object",
       "properties": {
         "solppdebugger.trace.extension": {
