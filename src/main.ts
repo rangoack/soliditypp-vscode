@@ -30,6 +30,8 @@ export async function activate(context: vscode.ExtensionContext) {
   ctx.registerCommand("stake", commands.stake);
 
   ctx.registerCommand("load", commands.loadContract);
+
+  ctx.registerCommand("faucet", commands.testNetFaucet);
 }
 
 export async function deactivate() {

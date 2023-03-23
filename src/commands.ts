@@ -156,49 +156,78 @@ export function stake(ctx: Ctx): Cmd {
 
 export function loadContract(ctx: Ctx): Cmd {
   return async () => {
-    const contracts = [
+    // Step 1: Input a contract name
+    const contractNameInput = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      prompt: "Please input the contract name",
+    });
+    if (!contractNameInput) {
+      return;
+    }
+
+    // Step 2: Use regex to find the contract from all contract files
+    const contractFiles = [
       ...(await vscode.workspace.findFiles("**/*.sol", "**/node_modules/**")),
       ...(await vscode.workspace.findFiles("**/*.solpp", "**/node_modules/**")),
     ];
-    let selectedContract: string = "";
-    if (contracts.length > 0) {
-      selectedContract = vscode.workspace.asRelativePath(contracts[0], false);
+    let selectedContractFile: vscode.Uri | undefined;
+    let contractName: string | undefined;
+    for (const item of contractFiles) {
+      const fileContent = (await vscode.workspace.fs.readFile(item)).toString();
+      const regexMatch = fileContent.match(new RegExp(`contract\\s+(${contractNameInput})`, "i"));
+      if (regexMatch) {
+        selectedContractFile = item;
+        contractName = regexMatch[1]; // Update contract name with the correct case
+        break;
+      }
     }
-    const contractFileStr = await vscode.window.showInputBox({
-      ignoreFocusOut: true,
-      value: selectedContract,
-      prompt: "Input the contract file path",
-    });
-    if (!contractFileStr) {
+
+    if (!contractName || !selectedContractFile) {
+      vscode.window.showErrorMessage(`contract ${contractNameInput} is not found`);
       return;
     }
-    const contractFile = contracts.find((item: vscode.Uri) => {
-      if (item.fsPath.match(new RegExp(contractFileStr, "i"))) {
-        return true;
-      } else {
+
+    // Step 3: Check if the contract file was compiled, if not, compile it and read the contract ABI
+    const contractJsonFile = vscode.Uri.parse(`${selectedContractFile.fsPath}.json`);
+    try {
+      await vscode.workspace.fs.stat(contractJsonFile);
+    } catch (error) {
+      // Compile the contract if not compiled
+      await vscode.commands.executeCommand("soliditypp.compile", selectedContractFile);
+      // Wait for the compilation to finish
+      await waitFor(async () => {
+        try {
+          await vscode.workspace.fs.stat(contractJsonFile);
+          return true;
+        } catch (error) {
+          return false;
+        }
+      }, 100);
+    }
+    let compileResult: any;
+    await waitFor(async () => {
+      try {
+        const ret: Uint8Array = await vscode.workspace.fs.readFile(contractJsonFile);
+        compileResult = JSON.parse(ret.toString());
+        if (compileResult) {
+          return true;
+        } else {
+          return false;
+        }
+      } catch (error) {
         return false;
       }
     });
-    if (!contractFile) {
-      vscode.window.showErrorMessage(`Contract ${contractFileStr} is not found`);
-      return;
-    }
 
-    const contractJsonFile = vscode.Uri.parse(`${contractFile.fsPath}.json`);
-    try {
-      const stat = await vscode.workspace.fs.stat(contractJsonFile)
-    } catch (error) {
-      vscode.window.showErrorMessage(`Contract ${contractFileStr} is not compiled`);
-      return;
-    }
-
-    const ret: Uint8Array = await vscode.workspace.fs.readFile(contractJsonFile);
-    const compileResult = JSON.parse(ret.toString());
     if (compileResult.errors) {
-      vscode.window.showErrorMessage(`Contract ${contractFileStr} is compiled with errors`);
+      vscode.window.showErrorMessage(`Contract ${contractName} is compiled with errors`);
       return;
     }
 
+    const contractObj = compileResult.contracts[vscode.workspace.asRelativePath(selectedContractFile, false)];
+    const contract = contractObj[contractName];
+
+    // Step 4: Input network
     let selectedNetwork: ViteNetwork | null = null;
     await vscode.window.showInputBox({
       ignoreFocusOut: true,
@@ -228,6 +257,7 @@ export function loadContract(ctx: Ctx): Cmd {
       return;
     }
 
+    // Step 5: Input contract address
     const address = await vscode.window.showInputBox({
       ignoreFocusOut: true,
       prompt: "Please input the contract address",
@@ -242,21 +272,22 @@ export function loadContract(ctx: Ctx): Cmd {
     if (!address) {
       return;
     }
-    for (const fileName in compileResult.contracts) {
-      const contractObj = compileResult.contracts[fileName];
-      for (const contractName in contractObj) {
-        const contract = contractObj[contractName];
-        const deployinfo: DeployInfo = {
-          contractName,
-          address,
-          contractFsPath: contractJsonFile.fsPath,
-          sourceFsPath: contractFile.fsPath,
-          network: selectedNetwork,
-          abi: contract.abi,
-        };
-        // render console webview
-        ContractConsoleViewPanel.render(ctx, deployinfo);
-      }
-    }
+
+    // Step 6: Construct deploy info and render
+    const deployinfo: DeployInfo = {
+      contractName,
+      address,
+      contractFsPath: contractJsonFile.fsPath,
+      sourceFsPath: selectedContractFile.fsPath,
+      network: selectedNetwork,
+      abi: contract.abi,
+    };
+    ContractConsoleViewPanel.render(ctx, deployinfo);
+  };
+}
+
+export function testNetFaucet(ctx: Ctx): Cmd {
+  return async () => {
+    vscode.env.openExternal(vscode.Uri.parse("https://vitefaucet.xyz"));
   };
 }

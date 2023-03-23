@@ -370,6 +370,16 @@
         "command": "soliditypp.load",
         "title": "Load Contract",
         "category": "Solidity++"
+      },
+      {
+        "command": "soliditypp.faucet",
+        "title": "Vite TestNet Faucet",
+        "category": "Solidity++"
+      },
+      {
+        "command": "soliditypp.faucet",
+        "title": "Get VITE in the TestNet",
+        "category": "Solidity++"
       }
     ],
     "viewsContainers": {
