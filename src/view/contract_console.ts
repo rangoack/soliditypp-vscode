@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 const vite = require("@vite/vitejs");
 import { Ctx } from "../ctx";
-import { getAmount, waitFor } from "../util";
+import { getAmount, waitFor, arrayify } from "../util";
 import { getWebviewContent } from "./webview";
 import {
   MessageEvent,
@@ -9,6 +9,7 @@ import {
   ViteNetwork,
   Address,
   ViteNodeStatus,
+  ABIItem,
 } from "../types/types";
 
 export class ContractConsoleViewPanel {
@@ -59,7 +60,7 @@ export class ContractConsoleViewPanel {
           break;
         case "send":
           {
-            const { fromAddress, toAddress, network, ctor, contractFile } = event.message;
+            const { fromAddress, toAddress, network, abiItem, contractFile } = event.message;
             const contractName = contractFile.fragment;
             // create AccountBlock
             const ab = new vite.accountBlock.AccountBlock({
@@ -67,10 +68,10 @@ export class ContractConsoleViewPanel {
               address: fromAddress,
               toAddress,
               tokenId: vite.constant.Vite_TokenId,
-              amount: ctor.amount,
+              amount: abiItem.amount,
               data: "",
             });
-            this.ctx.vmLog.info(`[${network}][${contractName}][send()][from=${fromAddress}][to=${toAddress}][amount=${ctor.amount}]`, ab.accountBlock);
+            this.ctx.vmLog.info(`[${network}][${contractName}][send()][from=${fromAddress}][to=${toAddress}][amount=${abiItem.amount}]`, ab.accountBlock);
             // get provider
             let provider = this.ctx.getProviderByNetwork(network);
             if (this.ctx.bridgeNode.status === ViteNodeStatus.Connected) {
@@ -97,8 +98,25 @@ export class ContractConsoleViewPanel {
                   }]
                 });
                 this.ctx.vmLog.info(`[${network}][${contractName}][send()][sendBlock=${sendBlock.hash}]`, sendBlock);
-              } catch (error) {
-                this.ctx.vmLog.error(`[${network}][${contractName}][send()]`, error);
+                this.postMessage({
+                  command: "callResult",
+                  message: {
+                    abiItem,
+                    contractAddress: toAddress,
+                    sendBlock,
+                  }
+                });
+              } catch (error: any) {
+                this.ctx.vmLog.error(`[${network}][${contractName}][send()][sendBlock=${sendBlock.hash}]`, sendBlock, error);
+                this.postMessage({
+                  command: "callResult",
+                  message: {
+                    abiItem,
+                    contractAddress: toAddress,
+                    sendBlock,
+                    errorMessage: error.message,
+                  }
+                });
               }
             } else {
               // set provider
@@ -116,49 +134,48 @@ export class ContractConsoleViewPanel {
                     if (block.previousHash === sendBlock.previousHash) {
                       sendBlock = block;
                       this.ctx.vmLog.info(`[${network}][${contractName}][send()][sendBlock=${sendBlock.hash}]`, sendBlock);
+                      this.postMessage({
+                        command: "callResult",
+                        message: {
+                          abiItem,
+                          contractAddress: toAddress,
+                          sendBlock,
+                        }
+                      });
                       return true;
                     }
                   }
                   return false;
                 });
-              } catch (error) {
-                this.ctx.vmLog.error(`[${network}][${contractName}][send()]`, error);
+              } catch (error: any) {
+                this.ctx.vmLog.info(`[${network}][${contractName}][send()][sendBlock=${sendBlock.hash}]`, sendBlock, error);
+                this.postMessage({
+                  command: "callResult",
+                  message: {
+                    abiItem,
+                    contractAddress: toAddress,
+                    sendBlock,
+                    errorMessage: error.message,
+                  }
+                });
               }
             }
 
-            // waiting confirmed
-            await waitFor(async () => {
-              if (sendBlock.confirmedHash) {
-                this.ctx.vmLog.info(`[${network}][${contractName}][send()][confirmed=${sendBlock.confirmedHash}]`, sendBlock);
-                this.postMessage({
-                  command: "sendResult",
-                  message: {
-                    sendBlock,
-                    ctor,
-                    contractAddress: toAddress,
-                  }
-                });
-                return true;
-              }
-              sendBlock = await reqProvider.request("ledger_getAccountBlockByHash", sendBlock.hash);
-              return false;
-            });
+            await this.waitingBlockConfirm(reqProvider, network, contractName, toAddress, sendBlock, abiItem, "callResult");
 
             await this.updateAddressList();
+            await this.updateContractQuota();
             ContractConsoleViewPanel._onDidCallContract.fire(event);
           }
           break;
         case "query":
           {
-            const { fromAddress, toAddress, network, contractFile, func } = event.message;
+            const { fromAddress, toAddress, network, contractFile, abiItem } = event.message;
             const contractName = contractFile.fragment;
-            // get inputs value
-            const params = func.inputs.map((x: any) => x.value);
-            this.ctx.vmLog.info(`[${network}][${contractName}][query ${func.name}()][request]`, {
+            this.ctx.vmLog.info(`[${network}][${contractName}][query ${abiItem.name}()][request]`, {
               contractAddress: toAddress,
-              params,
+              abiItem,
             });
-            const data = vite.abi.encodeFunctionCall(func, params);
             // get provider
             let reqProvider: any;
             if (network === ViteNetwork.Bridge) {
@@ -168,62 +185,62 @@ export class ContractConsoleViewPanel {
             }
 
             try {
-              await waitFor(async() => {
+              // get inputs value
+              const inputValues = abiItem.inputs.map((x: any) => x.value);
+              const data = vite.abi.encodeFunctionCall(abiItem, inputValues, abiItem.name);
+
+              // query
+              await waitFor(async () => {
                 const rawRet = await reqProvider.request("contract_query", {
                   address: toAddress,
                   data: Buffer.from(data, "hex").toString("base64"),
                 });
+                // FIXME: Unable to get an array of objects.
+                this.ctx.vmLog.debug('rawRet', rawRet);
                 if (rawRet) {
-                  this.ctx.log.debug(func.outputs);
                   const ret = vite.abi.decodeFunctionOutput(
-                    func,
-                    // func.outputs.map((x: any)=>x.type),
+                    abiItem,
+                    // abi.outputs.map((x: any)=>x.type),
                     Buffer.from(rawRet, "base64").toString("hex"),
                   );
-                  this.ctx.vmLog.info(`[${network}][${contractName}][query ${func.name}()][response]`, ret);
+                  this.ctx.vmLog.info(`[${network}][${contractName}][query ${abiItem.name}()][response]`, ret);
                   this.postMessage({
                     command: "queryResult",
                     message: {
                       ret,
-                      func,
+                      abiItem,
                       contractAddress: toAddress,
                     }
                   });
                   await this.updateAddressList();
+                  await this.updateContractQuota();
                   return true;
                 } else {
                   return false;
                 }
               });
-            } catch (error:any) {
-              this.ctx.vmLog.error(`[${network}][${contractName}][query ${func.name}()]`, error);
+            } catch (error: any) {
+              this.ctx.vmLog.error(`[${network}][${contractName}][query ${abiItem.name}()][response]`, error);
+              this.postMessage({
+                command: "queryResult",
+                message: {
+                  abiItem,
+                  contractAddress: toAddress,
+                  errorMessage: error.message,
+                }
+              });
             }
             ContractConsoleViewPanel._onDidCallContract.fire(event);
           }
           break;
         case "call":
           {
-            const { fromAddress, toAddress, network, contractFile, func } = event.message;
+            const { fromAddress, toAddress, network, contractFile, abiItem } = event.message;
             const contractName = contractFile.fragment;
-            // get inputs value
-            const params = func.inputs.map((x: any) => x.value);
-            const amount = getAmount(func.amount, func.amountUnit ?? "VITE");
-
-            // create AccountBlock
-            const data = vite.accountBlock.utils.getCallContractData({
-              abi: func,
-              params,
+            this.ctx.vmLog.info(`[${network}][${contractName}][call ${abiItem.name}()][request]`, {
+              contractAddress: toAddress,
+              abiItem,
             });
-            const ab = new vite.accountBlock.AccountBlock({
-              blockType: vite.constant.BlockType.TransferRequest,
-              address: fromAddress,
-              toAddress,
-              tokenId: vite.constant.Vite_TokenId,
-              amount,
-              data,
-            });
-
-            this.ctx.vmLog.info(`[${network}][${contractName}][call ${func.name}()][request]`, ab.accountBlock);
 
             // get provider
             let provider = this.ctx.getProviderByNetwork(network);
@@ -241,6 +258,33 @@ export class ContractConsoleViewPanel {
               reqProvider = provider;
             }
 
+            // create account block
+            let ab: any = undefined;
+            try {
+              // get amount
+              const amount = getAmount(abiItem.amount, abiItem.amountUnit ?? "VITE");
+
+              // get inputs value
+              const inputValues = abiItem.inputs.map((x: any) => x.value);
+              const data = vite.abi.encodeFunctionCall(abiItem, inputValues, abiItem.name);
+
+              ab = new vite.accountBlock.AccountBlock({
+                blockType: vite.constant.BlockType.TransferRequest,
+                address: fromAddress,
+                toAddress,
+                tokenId: vite.constant.Vite_TokenId,
+                amount,
+                fee: '0',
+                data: Buffer.from(data, "hex").toString("base64"),
+              });
+            } catch (error: any) {
+              this.ctx.vmLog.error(`[${network}][${contractName}][call ${abiItem.name}()][request]`, {
+                contractAddress: toAddress,
+                abiItem,
+              }, error);
+            }
+
+            // send block
             let sendBlock: any;
             if (network === ViteNetwork.Bridge) {
               try {
@@ -248,12 +292,29 @@ export class ContractConsoleViewPanel {
                   method: "vite_signAndSendTx",
                   params: [{
                     block: ab.accountBlock,
-                    abi: func,
+                    abi: abiItem,
                   }]
                 });
-                this.ctx.vmLog.info(`[${network}][${contractName}][call ${func.name}()][sendBlock=${sendBlock.hash}]`, sendBlock);
-              } catch (error) {
-                this.ctx.vmLog.error(`[${network}][${contractName}][call ${func.name}()]`, error); 
+                this.ctx.vmLog.info(`[${network}][${contractName}][call ${abiItem.name}()][sendBlock=${sendBlock.hash}]`, sendBlock);
+                this.postMessage({
+                  command: "callResult",
+                  message: {
+                    abiItem,
+                    contractAddress: toAddress,
+                    sendBlock,
+                  }
+                });
+              } catch (error: any) {
+                this.ctx.vmLog.error(`[${network}][${contractName}][call ${abiItem.name}()][sendBlock=${sendBlock.hash}]`, sendBlock, error);
+                this.postMessage({
+                  command: "callResult",
+                  message: {
+                    abi: abiItem,
+                    contractAddress: toAddress,
+                    sendBlock,
+                    errorMessage: error.message,
+                  }
+                });
                 return;
               }
             } else {
@@ -265,71 +326,34 @@ export class ContractConsoleViewPanel {
               try {
                 // sign and send
                 sendBlock = await ab.autoSend();
-                this.ctx.vmLog.info(`[${network}][${contractName}][call ${func.name}()][sendBlock=${sendBlock.hash}]`, sendBlock);
-              } catch (error) {
-                this.ctx.vmLog.error(`[${network}][${contractName}][call ${func.name}()]`, error); 
+                this.ctx.vmLog.info(`[${network}][${contractName}][call ${abiItem.name}()][sendBlock=${sendBlock.hash}]`, sendBlock);
+                this.postMessage({
+                  command: "callResult",
+                  message: {
+                    abiItem,
+                    contractAddress: toAddress,
+                    sendBlock,
+                  }
+                });
+              } catch (error: any) {
+                this.ctx.vmLog.error(`[${network}][${contractName}][call ${abiItem.name}()][sendBlock=${sendBlock.hash}]`, sendBlock, error);
+                this.postMessage({
+                  command: "callResult",
+                  message: {
+                    abiItem,
+                    contractAddress: toAddress,
+                    sendBlock,
+                    errorMessage: error.message
+                  }
+                });
                 return;
               }
             }
 
-            // waiting confirmed
-            await waitFor(async () => {
-              try {
-                sendBlock = await reqProvider.request("ledger_getAccountBlockByHash", sendBlock.hash);
-                if (!sendBlock.confirmedHash || !sendBlock.receiveBlockHash) {
-                  return false;
-                }
-                this.ctx.vmLog.info(`[${network}][${contractName}][call ${func.name}()][sendBlock][confirmed=${sendBlock.confirmedHash}]`, sendBlock);
-                this.postMessage({
-                  command: "callResult",
-                  message: {
-                    sendBlock,
-                    func,
-                    contractAddress: toAddress,
-                  }
-                });
-                return true;
-              } catch (error) {
-                this.ctx.vmLog.error(`[${network}][${contractName}][call ${func.name}()][sendBlock=${sendBlock.hash}]`, error);
-                return true;
-              }
-            });
+            await this.waitingBlockConfirm(reqProvider, network, contractName, toAddress, sendBlock, abiItem, "callResult");
 
-            try {
-              // get receive block
-              let receiveBlock = await reqProvider.request("ledger_getAccountBlockByHash", sendBlock.receiveBlockHash);
-              this.ctx.vmLog.info(`[${network}][${contractName}][call ${func.name}()][receiveBlock=${receiveBlock.hash}]`, receiveBlock);
-
-              // waiting confirmed
-              await waitFor(async () => {
-                if (receiveBlock.confirmedHash) {
-                  this.ctx.vmLog.info(`[${network}][${contractName}][call ${func.name}()][receiveBlock][confirmed=${receiveBlock.confirmedHash}]`, receiveBlock);
-                  return true;
-                }
-                receiveBlock = await reqProvider.request("ledger_getAccountBlockByHash", receiveBlock.hash);
-                return false;
-              });
-
-              if (receiveBlock.blockType !== 4 && receiveBlock.blockType !== 5 || !receiveBlock.data) {
-                throw new Error("bad recieve block");
-              }
-              const data = receiveBlock.data;
-              const bytes = Buffer.from(data, "base64");
-              if (bytes.length !== 33) {
-                throw new Error("bad data in recieve block");
-              }
-              // parse error code from data in receive block
-              const errorCode = bytes[32];
-              switch (errorCode) {
-                case 1:
-                  throw new Error(`revert, methodName: ${func.name}`);
-                case 2:
-                  throw new Error(`maximum call stack size exceeded, methodName: ${func.name}`);
-              }
-              await this.updateAddressList();
-            } catch (error) {
-              this.ctx.vmLog.error(`[${network}][${contractName}][call ${func.name}()][sendBlock=${sendBlock.hash}]`, error);
-            }
+            await this.updateAddressList();
+            await this.updateContractQuota();
 
             ContractConsoleViewPanel._onDidCallContract.fire(event);
           }
@@ -365,10 +389,134 @@ export class ContractConsoleViewPanel {
       ContractConsoleViewPanel.currentPanel = new ContractConsoleViewPanel(panel, ctx, deployInfo);
     }
   }
+  
+  private async waitingBlockConfirm(reqProvider: any, network: ViteNetwork, contractName: string, contractAddress: Address, sendBlock: any, abiItem: ABIItem, command: string): Promise<void> {
+    // waiting sendBlock confirm
+    try {
+      let isSendBlockConfirmed = false;
+      await waitFor(async () => {
+        sendBlock = await reqProvider.request("ledger_getAccountBlockByHash", sendBlock.hash);
+        if (sendBlock.confirmedHash && !isSendBlockConfirmed) {
+          this.ctx.vmLog.info(`[${network}][${contractName}][call ${abiItem.name}()][sendBlock][confirmed=${sendBlock.confirmedHash}]`, sendBlock);
+          isSendBlockConfirmed = true;
+          // update sendBlock confirmedHash
+          this.postMessage({
+            command,
+            message: {
+              abiItem,
+              contractAddress,
+              sendBlock,
+            }
+          });
+        }
+        // wating receiveBlockHash
+        if (!sendBlock.confirmedHash || !sendBlock.receiveBlockHash) {
+          return false;
+        }
+        this.postMessage({
+          command,
+          message: {
+            abiItem,
+            contractAddress,
+            sendBlock,
+          }
+        });
+        return true;
+      }, 500, 75 * 1000);
+    } catch (error: any) {
+      this.ctx.vmLog.error(`[${network}][${contractName}][call ${abiItem.name}()][sendBlock=${sendBlock.hash}]`, sendBlock, error);
+      this.postMessage({
+        command: command,
+        message: {
+          abiItem,
+          contractAddress,
+          sendBlock,
+          errorMessage: error.message
+        }
+      });
+      return;
+    }
+
+    // get receiveBlock first
+    let receiveBlock: any;
+    try {
+      receiveBlock = await reqProvider.request("ledger_getAccountBlockByHash", sendBlock.receiveBlockHash);
+      this.ctx.vmLog.info(`[${network}][${contractName}][call ${abiItem.name}()][receiveBlock=${receiveBlock.hash}]`, receiveBlock);
+    } catch (error) {}
+
+    // waiting receiveBlock confirm
+    try {
+      await waitFor(async () => {
+        receiveBlock = await reqProvider.request("ledger_getAccountBlockByHash", receiveBlock.hash);
+        if (!receiveBlock.confirmedHash) {
+          return false;
+        } else {
+          this.ctx.vmLog.info(`[${network}][${contractName}][call ${abiItem.name}()][receiveBlock][confirmed=${receiveBlock.confirmedHash}]`, receiveBlock);
+          this.postMessage({
+            command,
+            message: {
+              abiItem,
+              contractAddress,
+              sendBlock,
+              receiveBlock,
+            }
+          });
+          return true;
+        }
+      });
+    } catch (error:any) {
+      this.ctx.vmLog.error(`[${network}][${contractName}][call ${abiItem.name}()][receiveBlock=${receiveBlock.hash}]`, receiveBlock, error);
+      this.postMessage({
+        command,
+        message: {
+          abiItem,
+          contractAddress,
+          sendBlock,
+          receiveBlock,
+          errorMessage: error.message
+        }
+      });
+      return;
+    }
+
+    // check hash block correctly.
+    let error: Error | undefined = undefined;
+    if (receiveBlock.blockType !== 4 && receiveBlock.blockType !== 5 || !receiveBlock.data) {
+      error = new Error("Bad receive block");
+    }
+    const receiveBlockDataBytes = Buffer.from(receiveBlock.data, "base64");
+    if (receiveBlockDataBytes.length !== 33) {
+      error = new Error("Bad data in receive block");
+    }
+    // parse error code from data in receive block
+    const errorCode = receiveBlockDataBytes[32];
+    switch (errorCode) {
+      case 1:
+        error = new Error("Revert");
+        break;
+      case 2:
+        error = new Error("Maximum call stack size exceeded");
+        break;
+    }
+    if (error !== undefined) {
+      this.ctx.vmLog.error(`[${network}][${contractName}][call ${abiItem.name}()][receiveBlock=${receiveBlock.hash}]`, receiveBlock, error);
+      this.postMessage({
+        command,
+        message: {
+          abiItem,
+          contractAddress,
+          sendBlock,
+          receiveBlock,
+          errorMessage: error.message,
+        }
+      });
+    }
+  }
 
   public static updateDeps(){
     if (ContractConsoleViewPanel.currentPanel) {
       ContractConsoleViewPanel.currentPanel.updateAddressList();
+      ContractConsoleViewPanel.currentPanel.updateContractQuota();
     }
   }
 
@@ -393,7 +541,9 @@ export class ContractConsoleViewPanel {
     const message: any[] = [];
     for (const address of addressList) {
       const quotaInfo = await provider.request("contract_getQuotaByAccount", address);
+      this.ctx.log.debug('get quota', quotaInfo);
       const balanceInfo = await provider.getBalanceInfo(address);
+      this.ctx.log.debug('get balance', balanceInfo);
       const balance = balanceInfo.balance.balanceInfoMap?.[vite.constant.Vite_TokenId]?.balance;
       message.push({
         address,
@@ -406,6 +556,24 @@ export class ContractConsoleViewPanel {
       command: "setAddressList",
       message,
     });
+  }
+
+  public async updateContractQuota() {
+    try {
+      const provider = this.ctx.getProviderByNetwork(this.currentNetwork);
+      for (const address of this.deployeInfoMap.keys()) {
+        const quotaInfo = await provider.request("contract_getQuotaByAccount", address);
+        this.postMessage({
+          command: "updateContractQuota",
+          message: {
+            contractAddress: address,
+            quota: quotaInfo.currentQuota,
+          }
+        });
+      }
+    } catch (error) {
+      this.ctx.vmLog.error(`[${this.currentNetwork}][getQuota]`, error);
+    }
   }
 
   private clear() {
@@ -442,6 +610,8 @@ export class ContractConsoleViewPanel {
       message: deployInfo,
     });
 
+    // query contract quota
+    this.updateContractQuota();
   }
 
   private async subscribeVmLog(deployInfo: DeployInfo) {
@@ -483,7 +653,7 @@ export class ContractConsoleViewPanel {
                 command: "eventResult",
                 message: {
                   ret,
-                  event: abiItem,
+                  abiItem,
                   contractAddress: deployInfo.address,
                 }
               });

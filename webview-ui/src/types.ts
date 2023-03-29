@@ -84,4 +84,5 @@ export interface DeployInfo {
   abi: ABIItem[],
   network: ViteNetwork;
   address: Address;
+  quota?: string;
 }

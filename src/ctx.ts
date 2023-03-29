@@ -217,7 +217,17 @@ export class Ctx {
 
   getProviderByNetwork(network: ViteNetwork) {
     let provider;
-    for (const node of this.viteNodeMap.values()) {
+    // custom viteNode on top
+    const nodeList: ViteNode[] = Array.from(this.viteNodeMap.values()).sort((a: ViteNode, b: ViteNode) => {
+      if (a.isDefault === b.isDefault) {
+        return 0;
+      } else if (a.isDefault === true) {
+        return 1;
+      } else {
+        return -1;
+      }
+    });
+    for (const node of nodeList) {
       if (node.network === network) {
         if (node.status === ViteNodeStatus.Running || node.status === ViteNodeStatus.Connected) {
           return this.getProvider(node.name);

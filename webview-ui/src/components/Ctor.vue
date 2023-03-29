@@ -33,8 +33,16 @@ function ctorSignature(f: ABIItem): string {
       <span>Send token to this contract</span>
     </div>
 
-    <div class="component-item" v-if="ctor.confirmedHash">
-      <strong>confirmed hash:</strong> {{ctor.confirmedHash}}
+    <div class="component-item" v-if="ctor.callResult?.sendBlock?.confirmedHash">
+      <strong>sendBlock confirmedHash:</strong> {{ctor.callResult.sendBlock.confirmedHash}}
+    </div>
+
+    <div class="component-item" v-if="ctor.callResult?.receiveBlock?.confirmedHash">
+      <strong>receiveBlock confirmedHash:</strong> {{ ctor.callResult.receiveBlock.confirmedHash }}
+    </div>
+
+    <div class="component-item" v-if="ctor.callResult?.errorMessage">
+      <strong style="color: var(--vscode-errorForeground)">Error:</strong> {{ctor.callResult.errorMessage}}
     </div>
   </section>
 </template>

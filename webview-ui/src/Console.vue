@@ -9,6 +9,7 @@ import {
   vsCodePanelTab,
   vsCodePanelView,
   vsCodeDivider,
+  vsCodeBadge,
 } from "@vscode/webview-ui-toolkit";
 import {
   ref,
@@ -32,6 +33,7 @@ provideVSCodeDesignSystem().register(
   vsCodePanelTab(),
   vsCodePanelView(),
   vsCodeDivider(),
+  vsCodeBadge(),
 );
 
 onMounted(()=>{
@@ -84,6 +86,15 @@ function dataReceiver (ev: any) {
         }
       }
       break;
+    case "updateContractQuota":
+      {
+        state.deployedList.forEach((item) => {
+          if (item.address === data.message.contractAddress) {
+            item.quota = data.message.quota;
+          }
+        });
+      }
+      break;
     case "setAddressList":
       {
         for (const item of data.message) {
@@ -103,13 +114,20 @@ function dataReceiver (ev: any) {
       break;
     case "queryResult":
       {
-        const { ret, func, contractAddress } = data.message;
+        const { ret, abiItem, contractAddress, errorMessage } = data.message;
         const contract: any = state.deployedList.find(item => item.address === contractAddress);
-        for (const abi of contract.abi) {
-          if (abi.name === func.name && abi.type === func.type && abi.stateMutability === func.stateMutability) {
-            abi.outputs.forEach((output:any, idx:number) => {
-              output.value = ret[idx];
-            });
+        for (const refAbiItem of contract.abi) {
+          if (refAbiItem.name === abiItem.name && refAbiItem.type === abiItem.type && refAbiItem.stateMutability === abiItem.stateMutability) {
+            if (Array.isArray(ret)) {
+              refAbiItem.outputs.forEach((output: any, idx: number) => {
+                output.value = ret[idx];
+              });
+            }
+            if (errorMessage) {
+              refAbiItem.queryResult = {
+                errorMessage,
+              }
+            }
           }
         }
       }
@@ -118,9 +136,9 @@ function dataReceiver (ev: any) {
       {
         const { ret, event, contractAddress } = data.message;
         const contract: any = state.deployedList.find(item => item.address === contractAddress);
-        for (const abi of contract.abi) {
-          if (abi.name === event.name && abi.type === event.type) {
-            abi.inputs.forEach((input:any, idx:number) => {
+        for (const refAbiItem of contract.abi) {
+          if (refAbiItem.name === event.name && refAbiItem.type === event.type) {
+            refAbiItem.inputs.forEach((input:any, idx:number) => {
               input.value = ret[idx];
             });
           }
@@ -129,22 +147,15 @@ function dataReceiver (ev: any) {
       break;
     case "callResult":
       {
-        const { sendBlock, func, contractAddress } = data.message;
+        const { sendBlock, receiveBlock, errorMessage, abiItem, contractAddress } = data.message;
         const contract: any = state.deployedList.find(item => item.address === contractAddress);
-        for (const abi of contract.abi) {
-          if (abi.name === func.name && abi.type === func.type && abi.stateMutability === func.stateMutability) {
-            abi.confirmedHash = sendBlock.confirmedHash;
-          }
-        }
-      }
-      break;
-    case "sendResult":
-      {
-        const { sendBlock, ctor, contractAddress } = data.message;
-        const contract: any = state.deployedList.find(item => item.address === contractAddress);
-        for (const abi of contract.abi) {
-          if (abi.type === ctor.type && abi.stateMutability === ctor.stateMutability) {
-            abi.confirmedHash = sendBlock.confirmedHash;
+        for (const refAbiItem of contract.abi) {
+          if (refAbiItem.name === abiItem.name && refAbiItem.type === abiItem.type && refAbiItem.stateMutability === abiItem.stateMutability) {
+            refAbiItem.callResult = {
+              sendBlock,
+              receiveBlock,
+              errorMessage,
+            }
           }
         }
       }
@@ -174,26 +185,28 @@ function changeAddress(addr: Address) {
   state.selectedAddressInfo = addressMap.get(addr);
 }
 
-function getCtorDeclarations(abi: ABIItem[]): ABIItem[] {
-  return abi.filter((x: any) => x.type === "constructor" && x.stateMutability === "payable");
+function getCtorDeclarations(abiItem: ABIItem[]): ABIItem[] {
+  return abiItem.filter((x: any) => x.type === "constructor" && x.stateMutability === "payable");
 }
 
-function getFuncDeclarations(abi: ABIItem[]): ABIItem[]  {
-  return abi.filter((x: any) => x.type === "function");
+function getFuncDeclarations(abiItem: ABIItem[]): ABIItem[]  {
+  return abiItem.filter((x: any) => x.type === "function");
 }
 
-function getEventDeclarations(abi: ABIItem[]): ABIItem[]  {
-  return abi.filter((x: any) => x.type === "event");
+function getEventDeclarations(abiItem: ABIItem[]): ABIItem[]  {
+  return abiItem.filter((x: any) => x.type === "event");
 }
 
-function send(ctor: ABIItem, info: DeployInfo) {
+function send(abiItem: ABIItem, info: DeployInfo) {
+  delete abiItem.callResult;
+
   vscode.postMessage({
     command: "send",
     message: {
       fromAddress: state.selectedAddress,
       toAddress: info.address,
       network: info.network,
-      ctor: JSON.parse(JSON.stringify(ctor)),
+      abiItem: JSON.parse(JSON.stringify(abiItem)),
       contractFile: {
         fragment: info.contractName,
         fsPath: info.contractFsPath,
@@ -202,7 +215,12 @@ function send(ctor: ABIItem, info: DeployInfo) {
   });
 }
 
-function query(func: ABIItem, info: DeployInfo) {
+function query(abiItem: ABIItem, info: DeployInfo) {
+  delete abiItem.queryResult;
+  for (const output of abiItem.outputs ?? []) {
+    delete output.value;
+  }
+
   vscode.postMessage({
     command: "query",
     message: {
@@ -213,12 +231,15 @@ function query(func: ABIItem, info: DeployInfo) {
         fragment: info.contractName,
         fsPath: info.contractFsPath,
       },
-      func: JSON.parse(JSON.stringify(func)),
+      abiItem: JSON.parse(JSON.stringify(abiItem)),
     },
   });
 }
 
-function call(func: ABIItem, info: DeployInfo) {
+function call(abiItem: ABIItem, info: DeployInfo) {
+  // delete callResult in func
+  delete abiItem.callResult;
+
   vscode.postMessage({
     command: "call",
     message: {
@@ -229,7 +250,7 @@ function call(func: ABIItem, info: DeployInfo) {
         fragment: info.contractName,
         fsPath: info.contractFsPath,
       },
-      func: JSON.parse(JSON.stringify(func)),
+      abiItem: JSON.parse(JSON.stringify(abiItem)),
     },
   });
 }
@@ -263,7 +284,9 @@ function handleChange(event: any) {
             <span class="highlight">{{ item.address }}</span>
             on
             <span class="highlight">{{ item.network }}</span>
-            network
+            network which has
+            <span class="highlight">{{ item.quota ?? '...'}}</span>
+            quota
           </p>
 
           <Ctor v-for="(ctor, i) in getCtorDeclarations(item.abi)" :key="i" :ctor="ctor" @send="send(ctor, item)"></Ctor>
@@ -281,7 +304,9 @@ function handleChange(event: any) {
         <span class="highlight">{{ item.address }}</span>
         on
         <span class="highlight">{{ item.network }}</span>
-        network
+        network which has
+        <span class="highlight">{{ item.quota ?? '...' }}</span>
+        quota
       </p>
 
       <Ctor v-for="(ctor, i) in getCtorDeclarations(item.abi)" :key="i" :ctor="ctor" @send="send(ctor, item)"></Ctor>

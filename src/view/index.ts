@@ -276,6 +276,7 @@ export async function activateContractView(ctx: Ctx): Promise<void> {
     return () => {
       for (const network of [ViteNetwork.DebugNet, ViteNetwork.TestNet, ViteNetwork.MainNet]) {
         walletProvider.refresh(network);
+        ContractConsoleViewPanel.updateDeps();
       }
     };
   });

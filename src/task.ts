@@ -235,15 +235,15 @@ class SolppcTaskProvider implements vscode.TaskProvider {
     this.ctx.pushCleanup(contractWatcher);
   }
 
-  async problemMatcher(file: vscode.Uri) {
-    const outputPath = `${file.fsPath}.json`;
-    const output = vscode.Uri.parse(outputPath);
+  async problemMatcher(contractFile: vscode.Uri) {
+    const compileFilePath = `${contractFile.fsPath}.json`;
+    const compileFile = vscode.Uri.parse(compileFilePath);
     try {
-      await vscode.workspace.fs.stat(output);
+      await vscode.workspace.fs.stat(compileFile);
     } catch (error) {
       return;
     }
-    const ret = await vscode.workspace.fs.readFile(output);
+    const ret = await vscode.workspace.fs.readFile(compileFile);
     const compileResult = JSON.parse(ret.toString());
     let diagnostics: vscode.Diagnostic[] = [];
 
@@ -267,19 +267,31 @@ class SolppcTaskProvider implements vscode.TaskProvider {
         this.ctx.log.error(error);
       }
     }
-    this.diagnosticCollection.set(file, diagnostics);
-    // save abi to file
+    this.diagnosticCollection.set(contractFile, diagnostics);
+    // save ABI to file
+    this.saveABI(contractFile, compileResult);
+  }
+  /**
+   * Save the ABI of the contract to a file.
+   * @param contractFile The URI of the contract file.
+   * @param compileResult The result of the compilation.
+   */
+  private async saveABI(contractFile: vscode.Uri, compileResult: any) {
     if (compileResult.contracts) {
       const abiObj: any = {};
       for (const fileName in compileResult.contracts) {
-        const contractObj = compileResult.contracts[fileName];
-        for (const contractName in contractObj) {
-          abiObj[contractName] = contractObj[contractName].abi;
+        if (new RegExp(`${fileName.replace(/\./g, "\\.")}$`).test(contractFile.fsPath)) {
+          const contractObj = compileResult.contracts[fileName];
+          for (const contractName in contractObj) {
+            if (contractObj[contractName].abi.length > 0) {
+              abiObj[contractName] = contractObj[contractName].abi;
+            }
+          }
         }
       }
-      const abiFile = `${file.fsPath}.abi.json`;
+      const abiFile = `${contractFile.fsPath}.abi.json`;
       const writeData = Buffer.from(JSON.stringify(abiObj, null, 4), "utf8");
-      vscode.workspace.fs.writeFile(vscode.Uri.parse(abiFile), writeData);
+      await vscode.workspace.fs.writeFile(vscode.Uri.parse(abiFile), writeData);
     }
   }
 }

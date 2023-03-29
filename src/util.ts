@@ -194,3 +194,61 @@ export async function waitFor(condition: () => Promise<boolean>, interval: numbe
     await new Promise((resolve) => setTimeout(resolve, interval));
   }
 }
+
+export function arrayify(value: Buffer | Uint8Array | string | number | bigint): Buffer {
+  if (typeof (value) === 'number') {
+    if (value < 0 || value >= 0x1fffffffffffff) {
+      throw new Error(`invalid arrayify value ${value}`);
+    }
+    const result = [];
+    while (value) {
+      result.unshift(value & 0xff);
+      value = parseInt(String(value / 256));
+    }
+    if (result.length === 0) {
+      result.push(0);
+    }
+
+    return Buffer.from(result);
+  }
+  if (typeof (value) === 'bigint') {
+    if (value < 0) {
+      throw new Error(`invalid arrayify value ${value}`);
+    }
+    value = value.toString(16);
+    if (value.length % 2) {
+      value = `0${value}`;
+    }
+    return Buffer.from(value.toString(), 'hex');
+  }
+  if (typeof (value) === 'string') {
+    if (value.substring(0, 2) === '0x') {
+      value = value.substring(2);
+    }
+    if (isHexString(value)) {
+      if (value.length % 2) {
+        value = `0${value}`;
+      }
+      return Buffer.from(value.toString(), 'hex');
+    }
+    throw new Error(`not hex string ${value}`);
+  }
+
+  if (Buffer.isBuffer(value) || (value as any).constructor === Uint8Array) {
+    // return Buffer.alloc(value.length, value);
+    return Buffer.from(value);
+  }
+
+  throw new Error(`invalid arrayify value ${value}`);
+}
+
+export function isHexString(str: string, length?: number): boolean {
+  // return /^[0-9a-fA-F]+$/.test(str);
+  if (typeof (str) !== 'string' || !str.match(/^[0-9A-Fa-f]*$/)) {
+    return false;
+  }
+  if (length && str.length !== 2 * length) {
+    return false;
+  }
+  return true;
+}

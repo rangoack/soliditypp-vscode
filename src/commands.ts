@@ -59,10 +59,10 @@ export function stake(ctx: Ctx): Cmd {
       placeHolder: "Quota Beneficiary",
       prompt: "Input the address to stake to",
       validateInput: (value: string) => {
-        if (vite.wallet.isValidAddress(value) !== 1) {
-          return "Please input a valid address";
-        } else {
+        if (vite.wallet.isValidAddress(value) > 0) {
           return "";
+        } else {
+          return "Please input a valid address";
         }
       }
     });
@@ -147,8 +147,10 @@ export function stake(ctx: Ctx): Cmd {
         return true;
       });
       // refresh Wallet
+      vscode.window.showInformationMessage(`The stake has confirmed. The beneficiary address(${beneficiaryAddress.slice(-4)}) will receive the quota`);
       await vscode.commands.executeCommand("soliditypp.refreshWallet");
     } catch (error: any) {
+      vscode.window.showErrorMessage("An error occurred in stake for quota.");
       ctx.vmLog.error(`[${selectedNetwork}][stake]`, error);
     }
   };
