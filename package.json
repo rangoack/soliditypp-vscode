@@ -380,6 +380,16 @@
         "command": "soliditypp.faucet",
         "title": "Get VITE in the TestNet",
         "category": "Solidity++"
+      },
+      {
+        "command": "soliditypp.getPublicKey",
+        "title": "Get publicKey",
+        "category": "Solidity++"
+      },
+      {
+        "command": "soliditypp.getPrivateKey",
+        "title": "Get privateKey",
+        "category": "Solidity++"
       }
     ],
     "viewsContainers": {

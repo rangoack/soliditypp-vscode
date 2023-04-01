@@ -3,7 +3,7 @@ const vite = require("@vite/vitejs");
 import { getWebviewContent } from "./webview";
 import { Address, MessageEvent, ViteNetwork, ViteNodeStatus } from "../types/types";
 import { Ctx } from "../ctx";
-import { getAmount, waitFor } from "../util";
+import { getAmount, vmLog, waitFor } from "../util";
 
 export class ViteWalletViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "ViteWalletView";
@@ -275,7 +275,11 @@ export class ViteWalletViewProvider implements vscode.WebviewViewProvider {
       try {
         const quotaInfo = await provider.request("contract_getQuotaByAccount", address);
         const balanceInfo = await provider.getBalanceInfo(address);
-        const balance = balanceInfo.balance.balanceInfoMap?.[vite.constant.Vite_TokenId]?.balance;
+        const balanceInfoMap = balanceInfo.balanceInfoMap;
+        if (!balanceInfoMap) {
+          return;
+        }
+        const viteToken = balanceInfo.balanceInfoMap[vite.constant.Vite_TokenId];
         const unreceivedBlocks = await provider.request("ledger_getUnreceivedBlocksByAddress", address, 0, 10);
         this.postMessage({
           command: "updateAddressInfo",
@@ -283,7 +287,7 @@ export class ViteWalletViewProvider implements vscode.WebviewViewProvider {
             address,
             network,
             quota: quotaInfo.currentQuota,
-            balance: balance ? `${balance.slice(0, balance.length - vite.constant.Vite_Token_Info.decimals) || '0'}` : '0',
+            balance: `${viteToken.balance.slice(0, viteToken.balance.length - viteToken.tokenInfo.decimals) || '0'}`,
             unreceived: unreceivedBlocks.length,
           }
         });

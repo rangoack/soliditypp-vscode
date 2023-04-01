@@ -32,6 +32,10 @@ export async function activate(context: vscode.ExtensionContext) {
   ctx.registerCommand("load", commands.loadContract);
 
   ctx.registerCommand("faucet", commands.testNetFaucet);
+
+  ctx.registerCommand("getPublicKey", commands.getPublicKey);
+
+  ctx.registerCommand("getPrivateKey", commands.getPrivateKey);
 }
 
 export async function deactivate() {

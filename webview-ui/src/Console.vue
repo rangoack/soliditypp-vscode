@@ -280,11 +280,11 @@ function handleChange(event: any) {
           <p class="contract-status">
             Contract
             <span class="highlight">{{ item.contractName }}</span>
-            deployed at
-            <span class="highlight">{{ item.address }}</span>
-            on
+            deployed on
             <span class="highlight">{{ item.network }}</span>
-            network which has
+            network at
+            <span class="highlight">{{ item.address }}</span>
+            which has
             <span class="highlight">{{ item.quota ?? '...'}}</span>
             quota
           </p>
@@ -299,13 +299,14 @@ function handleChange(event: any) {
     <!-- viewStyle: Flow -->
     <section class="flow" v-else v-for="(item, idx) in state.deployedList" :key="idx">
       <p class="contract-status">
+        Contract
         <span class="highlight">{{ item.contractName }}</span>
-        deployed at
-        <span class="highlight">{{ item.address }}</span>
-        on
+        deployed on
         <span class="highlight">{{ item.network }}</span>
-        network which has
-        <span class="highlight">{{ item.quota ?? '...' }}</span>
+        network at
+        <span class="highlight">{{ item.address }}</span>
+        which has
+        <span class="highlight">{{ item.quota ?? '...'}}</span>
         quota
       </p>
 

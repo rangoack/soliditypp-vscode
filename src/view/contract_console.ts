@@ -190,35 +190,30 @@ export class ContractConsoleViewPanel {
               const data = vite.abi.encodeFunctionCall(abiItem, inputValues, abiItem.name);
 
               // query
-              await waitFor(async () => {
-                const rawRet = await reqProvider.request("contract_query", {
-                  address: toAddress,
-                  data: Buffer.from(data, "hex").toString("base64"),
-                });
-                // FIXME: Unable to get an array of objects.
-                this.ctx.vmLog.debug('rawRet', rawRet);
-                if (rawRet) {
-                  const ret = vite.abi.decodeFunctionOutput(
-                    abiItem,
-                    // abi.outputs.map((x: any)=>x.type),
-                    Buffer.from(rawRet, "base64").toString("hex"),
-                  );
-                  this.ctx.vmLog.info(`[${network}][${contractName}][query ${abiItem.name}()][response]`, ret);
-                  this.postMessage({
-                    command: "queryResult",
-                    message: {
-                      ret,
-                      abiItem,
-                      contractAddress: toAddress,
-                    }
-                  });
-                  await this.updateAddressList();
-                  await this.updateContractQuota();
-                  return true;
-                } else {
-                  return false;
-                }
+              const rawRet = await reqProvider.request("contract_query", {
+                address: toAddress,
+                data: Buffer.from(data, "hex").toString("base64"),
               });
+              // FIXME: Unable to get an array of objects.
+              this.ctx.vmLog.debug('rawRet', rawRet);
+              if (rawRet) {
+                const ret = vite.abi.decodeFunctionOutput(
+                  abiItem,
+                  // abi.outputs.map((x: any)=>x.type),
+                  Buffer.from(rawRet, "base64").toString("hex"),
+                );
+                this.ctx.vmLog.info(`[${network}][${contractName}][query ${abiItem.name}()][response]`, ret);
+                this.postMessage({
+                  command: "queryResult",
+                  message: {
+                    ret,
+                    abiItem,
+                    contractAddress: toAddress,
+                  }
+                });
+                await this.updateAddressList();
+                await this.updateContractQuota();
+              }
             } catch (error: any) {
               this.ctx.vmLog.error(`[${network}][${contractName}][query ${abiItem.name}()][response]`, error);
               this.postMessage({
@@ -442,6 +437,15 @@ export class ContractConsoleViewPanel {
     try {
       receiveBlock = await reqProvider.request("ledger_getAccountBlockByHash", sendBlock.receiveBlockHash);
       this.ctx.vmLog.info(`[${network}][${contractName}][call ${abiItem.name}()][receiveBlock=${receiveBlock.hash}]`, receiveBlock);
+      this.postMessage({
+        command,
+        message: {
+          abiItem,
+          contractAddress,
+          sendBlock,
+          receiveBlock,
+        }
+      });
     } catch (error) {}
 
     // waiting receiveBlock confirm

@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 const vuilder = require("@vite/vuilder");
 const vite = require("@vite/vitejs");
 import { Ctx, Cmd } from "./ctx";
-import { Address, ViteNetwork, DeployInfo } from "./types/types";
+import { Address, ViteNetwork, DeployInfo, AddressObj } from "./types/types";
 import { getAmount, waitFor } from "./util";
 import { ContractConsoleViewPanel } from "./view/contract_console";
 
@@ -147,8 +147,8 @@ export function stake(ctx: Ctx): Cmd {
         return true;
       });
       // refresh Wallet
+      vscode.commands.executeCommand("soliditypp.refreshWallet");
       vscode.window.showInformationMessage(`The stake has confirmed. The beneficiary address(${beneficiaryAddress.slice(-4)}) will receive the quota`);
-      await vscode.commands.executeCommand("soliditypp.refreshWallet");
     } catch (error: any) {
       vscode.window.showErrorMessage("An error occurred in stake for quota.");
       ctx.vmLog.error(`[${selectedNetwork}][stake]`, error);
@@ -292,4 +292,65 @@ export function testNetFaucet(ctx: Ctx): Cmd {
   return async () => {
     vscode.env.openExternal(vscode.Uri.parse("https://vitefaucet.xyz"));
   };
+}
+
+export function getPublicKey(ctx: Ctx): Cmd {
+  return async () => {
+    await getAddressInfo(ctx, "publicKey");
+  };
+}
+
+export function getPrivateKey(ctx: Ctx): Cmd {
+  return async () => {
+    await getAddressInfo(ctx, "privateKey");
+  };
+}
+
+async function getAddressInfo(ctx: Ctx, infoKey: keyof AddressObj) {
+  let selectedNetwork: ViteNetwork | null = null;
+  await vscode.window.showInputBox({
+    ignoreFocusOut: true,
+    placeHolder: "Debug | TestNet | MainNet",
+    prompt: "Please input the network",
+    validateInput: (value: string) => {
+      if (value) {
+        let found: any;
+        for (const network of Object.values(ViteNetwork)) {
+          found = network.match(new RegExp(value, "i"));
+          if (found) {
+            selectedNetwork = network;
+            break;
+          }
+        }
+        if (found) {
+          return "";
+        } else {
+          return "Invalid network";
+        }
+      } else {
+        return "";
+      }
+    }
+  });
+  if (!selectedNetwork) {
+    return;
+  }
+  let idx: number = 0;
+  await vscode.window.showInputBox({
+    ignoreFocusOut: true,
+    placeHolder: "The address index",
+    prompt: "Please input the publicKey index",
+    validateInput: (value: string) => {
+      const x = Number(value);
+      if (Number.isNaN(x) || x < 0) {
+        return "Invalid number";
+      } else {
+        idx = Number(value);
+        return "";
+      }
+    }
+  });
+  const wallet = ctx.getWallet(selectedNetwork);
+  const addressObj: AddressObj = wallet.deriveAddress(idx);
+  vscode.window.showInformationMessage(`${infoKey} for the address[${addressObj.address.slice(-4)}]: \n${addressObj[infoKey]}`);
 }

@@ -43,15 +43,19 @@ function handleClick(input: ABIAttr, idx: number) {
       </vscode-dropdown>
     </div>
 
-    <div class="component-item" :class="{'array-inputs': Array.isArray(input.value)}" v-for="(input, i) in func.inputs" :key="i">
-      <vscode-text-field size="60" @input="handleInput(input, 0, $event)" :value="input.value ?? ''">
+    <div class="component-item" :class="{'array-input': Array.isArray(input.value) && input.value.length > 0}" v-for="(input, i) in func.inputs" :key="i">
+      <template v-if="Array.isArray(input.value) && input.value.length" v-for="(item, idx) in input.value">
+        <section class="array-input-item">
+          <vscode-text-field size="60" @input="handleInput(input, idx, $event)" :value="item ?? ''">
+            <span v-if="idx === 0">{{ input.name }}: {{ input.type }}</span>
+          </vscode-text-field>
+          <vscode-button appearance="secondary" v-if="idx < input.value.length" @click="handleClick(input, idx)">Delete</vscode-button>
+        </section>
+        <vscode-text-field size="60" v-if="idx+1 === input.value.length" @input="handleInput(input, idx + 1, $event)"></vscode-text-field>
+      </template>
+      <vscode-text-field v-else size="60" @input="handleInput(input, 0, $event)" :value="input.value">
         {{ input.name }}: {{ input.type }}
       </vscode-text-field>
-      <section class="array-inputs-rest" v-if="Array.isArray(input.value)" v-for="(_, idx) in (input.value ?? [])">
-        <vscode-text-field size="60" @input="handleInput(input, idx+1, $event)" :value="input.value[idx+1] ?? ''">
-        </vscode-text-field>
-        <vscode-button appearance="secondary" v-if="idx+1 < input.value.length" @click="handleClick(input, idx+1)">Delete</vscode-button>
-      </section>
     </div>
 
     <div class="component-item">
@@ -63,12 +67,19 @@ function handleClick(input: ABIAttr, idx: number) {
       </vscode-button>
     </div>
 
-    <div class="component-item" v-if="func.callResult?.sendBlock?.confirmedHash">
-      <strong>SendBlock confirmedHash:</strong> {{func.callResult.sendBlock.confirmedHash}}
+    <div class="component-item call-result" v-if="func.callResult?.sendBlock?.hash">
+      <strong>sendBlock hash:</strong> {{func.callResult.sendBlock.hash}}
+    </div>
+    <div class="component-item call-result" v-if="func.callResult?.sendBlock?.confirmedHash">
+      <strong>sendBlock confirmedHash:</strong> {{func.callResult.sendBlock.confirmedHash}}
+    </div>
+
+    <div class="component-item" v-if="func.callResult?.receiveBlock?.hash">
+      <strong>receiveBlock hash:</strong> {{ func.callResult.receiveBlock.hash }}
     </div>
 
     <div class="component-item" v-if="func.callResult?.receiveBlock?.confirmedHash">
-      <strong>ReceiveBlock confirmedHash:</strong> {{ func.callResult.receiveBlock.confirmedHash }}
+      <strong>receiveBlock confirmedHash:</strong> {{ func.callResult.receiveBlock.confirmedHash }}
     </div>
 
     <div class="component-item" v-if="func.callResult?.errorMessage">
@@ -87,17 +98,17 @@ function handleClick(input: ABIAttr, idx: number) {
 </template>
 
 <style>
-.component-item.array-inputs {
+.component-item.array-input {
   flex-direction: column;
   align-items: flex-start;
 }
-.array-inputs vscode-text-field,
-.array-inputs vscode-button{
-  margin-bottom: 6px;
-}
-.array-inputs-rest {
+.array-input-item {
   display: grid;
   grid-template-columns: 1fr auto;
-  column-gap: 6px;
+  column-gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+.array-input-item:first-child vscode-button{
+  margin-top: 17px;
 }
 </style>
