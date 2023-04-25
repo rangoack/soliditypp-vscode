@@ -10,6 +10,7 @@ const emit = defineEmits(["query", "call"]);
 
 function funcSignature(f: ABIItem): string {
   const name = f.name ?? "";
+  // FIXME in case name is empty
   const params = f.inputs?.map(x => `${x.type} ${x.name}`).join(", ");
 
   return `function ${name}(${params}) ${f.stateMutability}`;

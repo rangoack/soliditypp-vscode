@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-const vuilder = require("@vite/vuilder");
 import { getWebviewContent } from "./webview";
 import { MessageEvent, ViteNetwork, ViteNode, ViteNodeStatus } from "../types/types";
 import { Ctx } from "../ctx";

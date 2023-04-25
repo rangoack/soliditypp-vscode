@@ -20,6 +20,7 @@ import {
 } from "vue";
 import { vscode } from "./vscode";
 import type { ABIItem, DeployInfo, Address } from "./types";
+import { ViteNetwork } from "./types";
 import Ctor from "./components/Ctor.vue";
 import Func from "./components/Func.vue";
 import Event from "./components/Event.vue";
@@ -281,7 +282,8 @@ function handleChange(event: any) {
             Contract
             <span class="highlight">{{ item.contractName }}</span>
             deployed on
-            <span class="highlight">{{ item.network }}</span>
+            <span v-if="item.network === ViteNetwork.Bridge" class="highlight">{{ item.network }}</span>
+            <span v-else class="highlight">{{ item.network }}</span>
             network at
             <span class="highlight">{{ item.address }}</span>
             which has

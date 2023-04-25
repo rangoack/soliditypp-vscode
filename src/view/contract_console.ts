@@ -74,22 +74,28 @@ export class ContractConsoleViewPanel {
             this.ctx.vmLog.info(`[${network}][${contractName}][send()][from=${fromAddress}][to=${toAddress}][amount=${abiItem.amount}]`, ab.accountBlock);
             // get provider
             let provider = this.ctx.getProviderByNetwork(network);
+            // TODO improve
+            let isBridgeNetwork = false;
             if (this.ctx.bridgeNode.status === ViteNodeStatus.Connected) {
               const addressList = this.ctx.getAddressList(ViteNetwork.Bridge);
               if (addressList.includes(fromAddress)) {
+                this.ctx.log.debug("this address from bridge");
+                isBridgeNetwork = true;
                 provider = this.ctx.getProviderByNetwork(ViteNetwork.Bridge);
               }
             }
             // request provider only for request
             let reqProvider: any;
-            if (network === ViteNetwork.Bridge) {
+            // if (network === ViteNetwork.Bridge) {
+            if (isBridgeNetwork) {
               reqProvider = this.ctx.getProviderByNetwork(ctx.bridgeNode.backendNetwork!);
             } else {
               reqProvider = provider;
             }
 
             let sendBlock: any;
-            if (network === ViteNetwork.Bridge) {
+            // if (network === ViteNetwork.Bridge) {
+            if (isBridgeNetwork) {
               try {
                 sendBlock = await provider.sendCustomRequest({
                   method: "vite_signAndSendTx",
@@ -194,8 +200,6 @@ export class ContractConsoleViewPanel {
                 address: toAddress,
                 data: Buffer.from(data, "hex").toString("base64"),
               });
-              // FIXME: Unable to get an array of objects.
-              this.ctx.vmLog.debug('rawRet', rawRet);
               if (rawRet) {
                 const ret = vite.abi.decodeFunctionOutput(
                   abiItem,
@@ -239,22 +243,27 @@ export class ContractConsoleViewPanel {
 
             // get provider
             let provider = this.ctx.getProviderByNetwork(network);
+            // TODO improve, consider currentNetwork
+            let isBridgeNetwork = false;
             if (this.ctx.bridgeNode.status === ViteNodeStatus.Connected) {
               const addressList = this.ctx.getAddressList(ViteNetwork.Bridge);
               if (addressList.includes(fromAddress)) {
+                this.ctx.log.debug("this address from bridge");
+                isBridgeNetwork = true;
                 provider = this.ctx.getProviderByNetwork(ViteNetwork.Bridge);
               }
             }
             // request provider only for request
             let reqProvider: any;
-            if (network === ViteNetwork.Bridge) {
+            // if (network === ViteNetwork.Bridge) {
+            if (isBridgeNetwork) {
               reqProvider = this.ctx.getProviderByNetwork(ctx.bridgeNode.backendNetwork!);
             } else {
               reqProvider = provider;
             }
 
             // create account block
-            let ab: any = undefined;
+            let ab: any;
             try {
               // get amount
               const amount = getAmount(abiItem.amount, abiItem.amountUnit ?? "VITE");
@@ -281,7 +290,8 @@ export class ContractConsoleViewPanel {
 
             // send block
             let sendBlock: any;
-            if (network === ViteNetwork.Bridge) {
+            // if (network === ViteNetwork.Bridge) {
+            if (isBridgeNetwork) {
               try {
                 sendBlock = await provider.sendCustomRequest({
                   method: "vite_signAndSendTx",
@@ -564,7 +574,12 @@ export class ContractConsoleViewPanel {
 
   public async updateContractQuota() {
     try {
-      const provider = this.ctx.getProviderByNetwork(this.currentNetwork);
+      let provider;
+      if (this.currentNetwork === ViteNetwork.Bridge) {
+        provider = this.ctx.getProviderByNetwork(this.ctx.bridgeNode.backendNetwork!);
+      } else {
+        provider = this.ctx.getProviderByNetwork(this.currentNetwork);
+      }
       for (const address of this.deployeInfoMap.keys()) {
         const quotaInfo = await provider.request("contract_getQuotaByAccount", address);
         this.postMessage({

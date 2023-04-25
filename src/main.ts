@@ -26,8 +26,20 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Actually ABI file is json format
   await vscode.workspace.getConfiguration().update("files.associations", {"*.abi": "json"}, vscode.ConfigurationTarget.Workspace);
+  
+  // create a temporary textDocument to show some long messages
+  const tempTextProvider = new class implements vscode.TextDocumentContentProvider {
+		onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
+		onDidChange = this.onDidChangeEmitter.event;
 
-  ctx.registerCommand("stake", commands.stake);
+		provideTextDocumentContent(uri: vscode.Uri): string {
+			return uri.query;
+		}
+	};
+
+  ctx.pushCleanup(vscode.workspace.registerTextDocumentContentProvider("text", tempTextProvider));
+
+  ctx.registerCommand("stake", commands.stakeForQuota);
 
   ctx.registerCommand("load", commands.loadContract);
 
@@ -36,6 +48,8 @@ export async function activate(context: vscode.ExtensionContext) {
   ctx.registerCommand("getPublicKey", commands.getPublicKey);
 
   ctx.registerCommand("getPrivateKey", commands.getPrivateKey);
+
+  ctx.registerCommand("getStakeList", commands.getStakeList);
 }
 
 export async function deactivate() {

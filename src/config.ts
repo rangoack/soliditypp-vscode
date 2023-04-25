@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import { ViteNode } from "./types/types";
 import { log, vmLog } from "./util";
-// const vuilder = require("@vite/vuilder");
 
 export class Config {
   readonly extensionId = "ViteLabs.solppdebugger";

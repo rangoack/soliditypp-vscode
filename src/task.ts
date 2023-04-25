@@ -203,12 +203,14 @@ class SolppcTaskProvider implements vscode.TaskProvider {
       }
       timer = setTimeout(async()=>{
         await this.problemMatcher(file);
+        this.ctx.deleteCompileResult(file);
         await vscode.commands.executeCommand("soliditypp.refreshContractTree", file);
       }, 1000);
 
     });
     outputWatcher.onDidCreate(async() => {
       await this.problemMatcher(file);
+      this.ctx.deleteCompileResult(file);
       await vscode.commands.executeCommand("soliditypp.refreshContractTree", file);
     });
     outputWatcher.onDidDelete(async() => {
@@ -268,7 +270,8 @@ class SolppcTaskProvider implements vscode.TaskProvider {
       }
     }
     this.diagnosticCollection.set(contractFile, diagnostics);
-    // save ABI to file
+    // workaround: save ABI to file
+    // TODO update/delete json and abi json file when contract source update/delete. esp when compiled with errors.
     this.saveABI(contractFile, compileResult);
   }
   /**

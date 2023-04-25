@@ -275,11 +275,11 @@ export class ViteWalletViewProvider implements vscode.WebviewViewProvider {
       try {
         const quotaInfo = await provider.request("contract_getQuotaByAccount", address);
         const balanceInfo = await provider.getBalanceInfo(address);
-        const balanceInfoMap = balanceInfo.balanceInfoMap;
+        const balanceInfoMap = balanceInfo.balance?.balanceInfoMap;
         if (!balanceInfoMap) {
           return;
         }
-        const viteToken = balanceInfo.balanceInfoMap[vite.constant.Vite_TokenId];
+        const viteToken = balanceInfoMap[vite.constant.Vite_TokenId];
         const unreceivedBlocks = await provider.request("ledger_getUnreceivedBlocksByAddress", address, 0, 10);
         this.postMessage({
           command: "updateAddressInfo",

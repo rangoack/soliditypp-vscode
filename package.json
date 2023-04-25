@@ -383,12 +383,17 @@
       },
       {
         "command": "soliditypp.getPublicKey",
-        "title": "Get publicKey",
+        "title": "Get PublicKey",
         "category": "Solidity++"
       },
       {
         "command": "soliditypp.getPrivateKey",
-        "title": "Get privateKey",
+        "title": "Get PrivateKey",
+        "category": "Solidity++"
+      },
+      {
+        "command": "soliditypp.getStakeList",
+        "title": "Get Stake List",
         "category": "Solidity++"
       }
     ],

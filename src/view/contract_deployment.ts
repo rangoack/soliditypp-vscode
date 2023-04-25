@@ -157,8 +157,9 @@ export class ContractDeploymentViewProvider implements vscode.WebviewViewProvide
                   }]
                 });
                 this.ctx.vmLog.info(`[${selectedNode.network}][${selectedContract.name}][deploy][sendBlock=${sendBlock.hash}]`, sendBlock);
-              } catch (error) {
+              } catch (error: any) {
                 this.ctx.vmLog.error(`[${selectedNode.network}][${selectedContract.name}][deploy]`, error);
+                vscode.window.showErrorMessage(error.message);
                 this.updateDeploymentStatus();
                 return;
               }

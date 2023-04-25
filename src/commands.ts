@@ -1,17 +1,19 @@
 import * as vscode from "vscode";
-const vuilder = require("@vite/vuilder");
 const vite = require("@vite/vitejs");
 import { Ctx, Cmd } from "./ctx";
-import { Address, ViteNetwork, DeployInfo, AddressObj } from "./types/types";
+import { Address, ViteNetwork, DeployInfo, AddressObj, ViteNodeStatus } from "./types/types";
 import { getAmount, waitFor } from "./util";
 import { ContractConsoleViewPanel } from "./view/contract_console";
 
-export function stake(ctx: Ctx): Cmd {
+const stakeForQuotaAbi = vite.constant.Contracts.StakeForQuota.abi;
+const stakeForQuotaContractAddress = vite.constant.Contracts.StakeForQuota.contractAddress;
+
+export function stakeForQuota(ctx: Ctx): Cmd {
   return async () => {
     let selectedNetwork: ViteNetwork | null = null;
     await vscode.window.showInputBox({
       ignoreFocusOut: true,
-      placeHolder: "Debug | TestNet | MainNet",
+      placeHolder: "Debug | TestNet | MainNet | Bridge",
       prompt: "Please input the network",
       validateInput: (value: string) => {
         if (value) {
@@ -77,81 +79,109 @@ export function stake(ctx: Ctx): Cmd {
     if (!amount) {
       return;
     };
-    const fromAddressObj = ctx.getAddressObj(fromAddress);
-    if (!fromAddressObj) {
-      ctx.vmLog.error(`[${selectedNetwork}][stake]${fromAddress} is not found in the wallet`);
-      return;
-    }
 
-    ctx.vmLog.info(`[${selectedNetwork}][stake][request]`, {
+    ctx.vmLog.info(`[${selectedNetwork}][stakeForQuota]][request]`, {
       fromAddress,
       beneficiaryAddress,
       amount,
       network: selectedNetwork,
     });
-    // get provider and operator
-    const provider = ctx.getProviderByNetwork(selectedNetwork);
-    const sender = new vuilder.UserAccount(fromAddress);
-    sender._setProvider(provider);
-    sender.setPrivateKey(fromAddressObj.privateKey);
-    let sendBlock = sender.stakeForQuota({
-      beneficiaryAddress,
-      amount: getAmount(amount),
-    });
 
-    let resend = false;
-    try {
-      sendBlock = await sendBlock.autoSendByPoW();
-    } catch (error) {
-      ctx.vmLog.error(`[${selectedNetwork}][stake][autoSendByPoW]`, error);
-      resend = true;
+    // get provider
+    let provider = ctx.getProviderByNetwork(selectedNetwork);
+    // request provider only for request
+    let reqProvider: any;
+    if (selectedNetwork === ViteNetwork.Bridge) {
+      reqProvider = ctx.getProviderByNetwork(ctx.bridgeNode.backendNetwork!);
+    } else {
+      reqProvider = provider;
     }
 
+    // create account block
+    let ab: any;
     try {
-      if (resend) {
-        sendBlock = await sendBlock.autoSend();
+      // get inputs value
+      const data = vite.abi.encodeFunctionCall(stakeForQuotaAbi, [beneficiaryAddress], 'StakeForQuota');
+
+      ab = new vite.accountBlock.AccountBlock({
+        blockType: vite.constant.BlockType.TransferRequest,
+        address: fromAddress,
+        toAddress: stakeForQuotaContractAddress,
+        tokenId: vite.constant.Vite_TokenId,
+        amount: getAmount(amount),
+        fee: '0',
+        data: Buffer.from(data, "hex").toString("base64"),
+      });
+    } catch (error: any) {
+      vscode.window.showErrorMessage(`stakeForQuota error: ${error.message}`);
+      ctx.vmLog.error(`[${selectedNetwork}][stakeForQuota][request]`, {
+        contractAddress: stakeForQuotaContractAddress,
+        quotaAbi: stakeForQuotaAbi,
+      }, error);
+    }
+
+    // send block
+    let sendBlock: any;
+    if (selectedNetwork === ViteNetwork.Bridge) {
+      try {
+        sendBlock = await provider.sendCustomRequest({
+          method: "vite_signAndSendTx",
+          params: [{
+            block: ab.accountBlock,
+            abi: stakeForQuotaAbi,
+          }]
+        });
+        ctx.vmLog.info(`[${selectedNetwork}][stakeForQuota][sendBlock=${sendBlock.hash}]`, sendBlock);
+      } catch (error: any) {
+        vscode.window.showErrorMessage(`stakeForQuota error: ${error.message}`);
+        ctx.vmLog.error(`[${selectedNetwork}][stakeForQuota][sendBlock=${sendBlock.hash}]`, sendBlock, error);
+        return;
       }
-      ctx.vmLog.info(`[${selectedNetwork}][stake][sendBlock=${sendBlock.hash}]`, sendBlock);
+    } else {
+      // set provider
+      ab.setProvider(provider);
+      // set private key
+      const addressObj = ctx.getAddressObj(fromAddress);
+      if (!addressObj) {
+        ctx.vmLog.error(`[${selectedNetwork}][stakeForQuota]${fromAddress} is not found in the wallet`);
+        vscode.window.showErrorMessage(`${fromAddress} is not found in the wallet`);
+        return;
+      }
 
-      // get account block
-      await waitFor(async () => {
-        const blocks = await provider.request("ledger_getAccountBlocksByAddress", fromAddress, 0, 3);
-        for (const block of blocks) {
-          if (block.previousHash === sendBlock.previousHash) {
-            sendBlock = block;
-            ctx.vmLog.info(`[${selectedNetwork}][stake][sendBlock=${sendBlock.hash}]`, sendBlock);
-            return true;
-          }
+      ab.setPrivateKey(addressObj!.privateKey);
+      let resend = false;
+      try {
+        sendBlock = await sendBlock.autoSendByPoW();
+      } catch (error) {
+        ctx.vmLog.error(`[${selectedNetwork}][stake][autoSendByPoW]`, error);
+        resend = true;
+      }
+      if (resend) {
+        try {
+          // sign and send
+          sendBlock = await ab.autoSend();
+          ctx.vmLog.info(`[${selectedNetwork}][stakeForQuota][sendBlock=${sendBlock.hash}]`, sendBlock);
+        } catch (error: any) {
+          vscode.window.showErrorMessage(`stakeForQuota error: ${error.message}`);
+          ctx.vmLog.error(`[${selectedNetwork}][stakeForQuota][sendBlock=${sendBlock.hash}]`, sendBlock, error);
+          return;
         }
-        return false;
-      });
+      }
+    }
 
-      // waiting confirmed
-      await waitFor(async () => {
-        sendBlock = await provider.request("ledger_getAccountBlockByHash", sendBlock.hash);
-        if (!sendBlock.confirmedHash || !sendBlock.receiveBlockHash) {
-          return false;
-        }
-        ctx.vmLog.info(`[${selectedNetwork}][stake][sendBlock][confirmed=${sendBlock.confirmedHash}]`, sendBlock);
-        return true;
-      });
 
-      // waiting confirmed
-      await waitFor(async () => {
-        // get receive block
-        const receiveBlock = await provider.request("ledger_getAccountBlockByHash", sendBlock.receiveBlockHash);
-        if (!receiveBlock.confirmedHash) {
-          return false;
-        }
-        ctx.vmLog.info(`[${selectedNetwork}][stake][receiveBlock][confirmed=${receiveBlock.confirmedHash}]`, receiveBlock);
-        return true;
-      });
+    try {
+      // waiting confirm
+      const err = await ctx.waitingBlockConfirm(reqProvider, selectedNetwork, 'stakeForQuota', stakeForQuotaContractAddress, sendBlock, stakeForQuotaAbi);
+      if (err) {
+        throw err;
+      }
       // refresh Wallet
       vscode.commands.executeCommand("soliditypp.refreshWallet");
       vscode.window.showInformationMessage(`The stake has confirmed. The beneficiary address(${beneficiaryAddress.slice(-4)}) will receive the quota`);
     } catch (error: any) {
       vscode.window.showErrorMessage("An error occurred in stake for quota.");
-      ctx.vmLog.error(`[${selectedNetwork}][stake]`, error);
+      ctx.vmLog.error(`[${selectedNetwork}][stakeForQuota]`, error);
     }
   };
 }
@@ -168,6 +198,7 @@ export function loadContract(ctx: Ctx): Cmd {
     }
 
     // Step 2: Use regex to find the contract from all contract files
+    // TODO: same contract name
     const contractFiles = [
       ...(await vscode.workspace.findFiles("**/*.sol", "**/node_modules/**")),
       ...(await vscode.workspace.findFiles("**/*.solpp", "**/node_modules/**")),
@@ -353,4 +384,117 @@ async function getAddressInfo(ctx: Ctx, infoKey: keyof AddressObj) {
   const wallet = ctx.getWallet(selectedNetwork);
   const addressObj: AddressObj = wallet.deriveAddress(idx);
   vscode.window.showInformationMessage(`${infoKey} for the address[${addressObj.address.slice(-4)}]: \n${addressObj[infoKey]}`);
+}
+
+export function getStakeList(ctx: Ctx): Cmd {
+  return async () => {
+    let selectedNetwork: ViteNetwork | null = null;
+    await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      placeHolder: "Debug | TestNet | MainNet | Bridge",
+      prompt: "Please input the network",
+      validateInput: (value: string) => {
+        if (value) {
+          let found:any;
+          for (const network of Object.values(ViteNetwork)) {
+            found = network.match(new RegExp(value, "i"));
+            if (found) {
+              selectedNetwork = network;
+              break;
+            }
+          }
+          if (found) {
+            return "";
+          } else {
+            return "Invalid network";
+          }
+        } else {
+          return "";
+        }
+      }
+    });
+    if (!selectedNetwork) {
+      return;
+    }
+
+    const address = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      value: ctx.getAddressList(selectedNetwork)[0],
+      placeHolder: "Address of account",
+      prompt: "Please input the address of an account",
+      validateInput: (value: string) => {
+        if (vite.wallet.isValidAddress(value) !== 1) {
+          return "Please input a valid address";
+        } else {
+          return "";
+        }
+      }
+    });
+    if (!address) {
+      return;
+    };
+    let skip: string | number | undefined = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      value: "0",
+      placeHolder: "Start number of results",
+      prompt: "Please input the start number of results",
+      validateInput: (value: string) => {
+        if (Number.isNaN(parseInt(value))) {
+          return "Please input a valid number";
+        } else {
+          return "";
+        }
+      }
+    });
+    if (skip) {
+      skip = parseInt(skip);
+    } else {
+      skip = 0;
+    }
+
+    let limit: string | number | undefined = await vscode.window.showInputBox({
+      ignoreFocusOut: true,
+      value: "10",
+      placeHolder: "Number of results",
+      prompt: "Please input the number of results",
+      validateInput: (value: string) => {
+        if (Number.isNaN(parseInt(value))) {
+          return "Please input a valid number";
+        } else {
+          return "";
+        }
+      }
+    });
+
+    if (limit) {
+      limit = parseInt(limit);
+    } else {
+      limit = 0;
+    }
+
+    // get provider
+    let reqProvider: any;
+    if (selectedNetwork === ViteNetwork.Bridge) {
+      reqProvider = ctx.getProviderByNetwork(ctx.bridgeNode.backendNetwork!);
+    } else {
+      reqProvider = ctx.getProviderByNetwork(selectedNetwork);
+    }
+
+    try {
+      // query
+      const ret = await reqProvider.request("contract_getStakeList", address, skip, limit);
+      ctx.log.info(`[${selectedNetwork}][getStakeList]`, ret);
+      const uri = vscode.Uri.parse(`text:getStakeList [${selectedNetwork}] [${address.slice(-4)}]?${JSON.stringify(ret, null, 2)}`);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc, { preview: true });
+    } catch (error: any) {
+      ctx.log.error(`[${selectedNetwork}][getStakeList]`, error);
+    }
+  };
+}
+
+
+export function cancelQuotaStake(ctx: Ctx): Cmd {
+  return async () => {
+  };
 }

@@ -14,8 +14,9 @@ import {
   AddressObj,
   Address,
   CompileResult,
+  ABIItem,
 } from "./types/types";
-import { log, vmLog, Log, readContractJsonFile } from "./util";
+import { log, vmLog, Log, readContractJsonFile, waitFor } from "./util";
 import { debugWalletMneonic } from "./view/debug_wallet";
 
 export const WALLET_KEY = {
@@ -469,6 +470,91 @@ export class Ctx {
     const md5sum = createHash("md5").update(bytecode).digest("hex");
     const id = `${contractName}:${md5sum}:${network}`;
     this.cache.delete(id);
+  }
+  
+  async waitingBlockConfirm(
+    reqProvider: any,
+    network: ViteNetwork,
+    contractName: string,
+    contractAddress: Address,
+    sendBlock: any,
+    abiItem: ABIItem,
+    progressFn?: (error: any, sendBlock: any, receiveBlock: any) => {}
+  ): Promise<Error | undefined> {
+    // waiting sendBlock confirm
+    try {
+      let isSendBlockConfirmed = false;
+      await waitFor(async () => {
+        sendBlock = await reqProvider.request("ledger_getAccountBlockByHash", sendBlock.hash);
+        if (sendBlock.confirmedHash && !isSendBlockConfirmed) {
+          this.vmLog.info(`[${network}][${contractName}][call ${abiItem.name}()][sendBlock][confirmed=${sendBlock.confirmedHash}]`, sendBlock);
+          isSendBlockConfirmed = true;
+          // update sendBlock confirmedHash
+          progressFn && progressFn(null, sendBlock, null);
+        }
+        // wating receiveBlockHash
+        if (!sendBlock.confirmedHash || !sendBlock.receiveBlockHash) {
+          return false;
+        }
+        return true;
+      }, 500, 75 * 1000);
+    } catch (error: any) {
+      this.vmLog.error(`[${network}][${contractName}][call ${abiItem.name}()][sendBlock=${sendBlock.hash}]`, sendBlock, error);
+      progressFn && progressFn(error, sendBlock, null);
+      return error;
+    }
+
+    // get receiveBlock first
+    let receiveBlock: any;
+    try {
+      receiveBlock = await reqProvider.request("ledger_getAccountBlockByHash", sendBlock.receiveBlockHash);
+      this.vmLog.info(`[${network}][${contractName}][call ${abiItem.name}()][receiveBlock=${receiveBlock.hash}]`, receiveBlock);
+      progressFn && progressFn(null, sendBlock, receiveBlock);
+    } catch (error) {}
+
+    // waiting receiveBlock confirm
+    try {
+      await waitFor(async () => {
+        receiveBlock = await reqProvider.request("ledger_getAccountBlockByHash", receiveBlock.hash);
+        if (!receiveBlock.confirmedHash) {
+          return false;
+        } else {
+          this.vmLog.info(`[${network}][${contractName}][call ${abiItem.name}()][receiveBlock][confirmed=${receiveBlock.confirmedHash}]`, receiveBlock);
+          progressFn && progressFn(null, sendBlock, receiveBlock);
+          return true;
+        }
+      });
+    } catch (error:any) {
+      this.vmLog.error(`[${network}][${contractName}][call ${abiItem.name}()][receiveBlock=${receiveBlock.hash}]`, receiveBlock, error);
+      progressFn && progressFn(null, sendBlock, receiveBlock);
+      return error;
+    }
+
+    // check hash block correctly.
+    let error: Error | undefined = undefined;
+    if (receiveBlock.blockType !== 4 && receiveBlock.blockType !== 5 || !receiveBlock.data) {
+      error = new Error("Bad receive block");
+    }
+    const receiveBlockDataBytes = Buffer.from(receiveBlock.data, "base64");
+    if (receiveBlockDataBytes.length !== 33) {
+      error = new Error("Bad data in receive block");
+    }
+    // parse error code from data in receive block
+    const errorCode = receiveBlockDataBytes[32];
+    switch (errorCode) {
+      case 1:
+        error = new Error("Revert");
+        break;
+      case 2:
+        error = new Error("Maximum call stack size exceeded");
+        break;
+    }
+    if (error !== undefined) {
+      this.vmLog.error(`[${network}][${contractName}][call ${abiItem.name}()][receiveBlock=${receiveBlock.hash}]`, receiveBlock, error);
+      progressFn && progressFn(error, sendBlock, receiveBlock);
+      return error;
+    }
+    return;
   }
 }
 
